@@ -44,6 +44,135 @@ app.storageQueue('processImage', {
 
 > ❌ Do NOT use legacy v1-v3 `module.exports` — always use `app.*()` registration.
 
+## Cloud Run Functions Migration Rules
+
+> Shared rules (bindings over SDKs, latest runtime, identity-first auth) → [global-rules.md](../global-rules.md)
+> Full scenario guidance → [cloudrun-functions-to-functions.md](../cloudrun-functions-to-functions.md)
+
+Node.js–specific Cloud Run functions rules:
+- **Drop `@google-cloud/functions-framework`** from `package.json` `dependencies` and the `"start": "functions-framework --target=..."` script
+- **Replace handler registration**: `functions.http('name', fn)` and `functions.cloudEvent('name', fn)` → `app.http('name', ...)`, `app.serviceBusQueue('name', ...)`, `app.storageBlob('name', ...)`, etc.
+- **Express `req`/`res` → return value**: GCP HTTP handlers call `res.send()` / `res.status().json()`. Azure handlers **return** `{ status, body, headers }` (HttpResponseInit). Convert all response writes to a single return.
+- **`req.body` parsing**: GCP relies on Express body-parser (auto-parses JSON). Azure v4: call `await request.json()` or `await request.text()` explicitly.
+- **CloudEvent unwrap**: GCP `cloudEvent(name, (event) => event.data...)` gives a CloudEvents envelope. Azure trigger params are already unwrapped (the message body, the blob, the change-feed document). Strip every `event.data.*` deref.
+- **Pub/Sub base64 decode**: GCP `cloudEvent` for Pub/Sub requires `Buffer.from(event.data.message.data, 'base64').toString()`. Service Bus messages arrive **already decoded** — delete that line.
+- **No `app.listen(PORT)`**: GCP Buildpacks default `PORT=8080`. Azure Functions host owns the listener — remove any Express bootstrap.
+- **No SA JSON key**: drop `GOOGLE_APPLICATION_CREDENTIALS` and replace any `new Storage({ keyFilename })` / `auth.fromJSON()` with `DefaultAzureCredential({ managedIdentityClientId: process.env.AZURE_CLIENT_ID })`.
+
+### Canonical Side-by-Side — HTTP Function
+
+```javascript
+// ❌ BEFORE — Cloud Run functions (Functions Framework)
+const functions = require('@google-cloud/functions-framework');
+
+functions.http('helloHttp', (req, res) => {
+  const name = req.query.name || req.body.name || 'World';
+  res.status(200).send(`Hello, ${name}!`);
+});
+
+// ✅ AFTER — Azure Functions v4
+const { app } = require('@azure/functions');
+
+app.http('helloHttp', {
+  methods: ['GET', 'POST'],
+  authLevel: 'anonymous',
+  handler: async (request, context) => {
+    const name = request.query.get('name')
+      || (await request.json().catch(() => ({})))?.name
+      || 'World';
+    return { status: 200, body: `Hello, ${name}!` };
+  }
+});
+```
+
+### Canonical Side-by-Side — Pub/Sub CloudEvent → Service Bus Queue
+
+```javascript
+// ❌ BEFORE — Cloud Run functions consuming Pub/Sub via CloudEvent
+const functions = require('@google-cloud/functions-framework');
+
+functions.cloudEvent('handleMessage', (cloudEvent) => {
+  // Pub/Sub data is base64-encoded inside the CloudEvent envelope
+  const payload = JSON.parse(
+    Buffer.from(cloudEvent.data.message.data, 'base64').toString()
+  );
+  const attrs = cloudEvent.data.message.attributes || {};
+  console.log(`Got message ${cloudEvent.data.message.messageId}:`, payload);
+  // ...business logic...
+});
+
+// ✅ AFTER — Azure Functions v4 Service Bus queue trigger
+const { app } = require('@azure/functions');
+
+app.serviceBusQueue('handleMessage', {
+  queueName: 'messages',
+  connection: 'ServiceBusConnection',   // identity-based connection string-less binding
+  handler: async (message, context) => {
+    // message is the already-decoded payload (object if JSON)
+    const attrs = context.triggerMetadata.applicationProperties || {};
+    context.log(`Got message ${context.triggerMetadata.messageId}:`, message);
+    // ...business logic...
+  }
+});
+```
+
+> **Identity-based Service Bus binding**: configure `ServiceBusConnection__fullyQualifiedNamespace` (not a connection string) + UAMI with **Azure Service Bus Data Receiver** role.
+
+### Canonical Side-by-Side — GCS object.finalized → Azure Blob Trigger (EventGrid source)
+
+```javascript
+// ❌ BEFORE — Cloud Run functions consuming GCS object.finalized
+const functions = require('@google-cloud/functions-framework');
+
+functions.cloudEvent('onUpload', (cloudEvent) => {
+  const { bucket, name, contentType, size } = cloudEvent.data;
+  console.log(`New object gs://${bucket}/${name} (${contentType}, ${size}B)`);
+  // ...process object...
+});
+
+// ✅ AFTER — Azure Functions v4 Blob trigger with EventGrid source
+const { app } = require('@azure/functions');
+
+app.storageBlob('onUpload', {
+  path: 'uploads/{name}',                  // {name} captures the blob name
+  connection: 'AzureWebJobsStorage',
+  source: 'EventGrid',                     // see global-rules.md for infra prerequisites
+  handler: async (blob, context) => {
+    const blobName = context.triggerMetadata.name;
+    const contentType = context.triggerMetadata.properties?.contentType;
+    const size = blob.length;
+    context.log(`New blob ${blobName} (${contentType}, ${size}B)`);
+    // ...process blob (already a Buffer)...
+  }
+});
+```
+
+> ⚠️ **Infrastructure prerequisites** for blob trigger with `source: 'EventGrid'` on Flex Consumption: always-ready instance, queue endpoint, Event Grid subscription deployed via Bicep, Storage Queue Data Contributor RBAC. See [global-rules.md](../global-rules.md#flex-consumption-specifics) and [lambda-to-functions.md](../lambda-to-functions.md#flex-consumption--blob-trigger-with-eventgrid-source).
+
+### Canonical Side-by-Side — Cloud Scheduler → Timer Trigger
+
+```javascript
+// ❌ BEFORE — Cloud Scheduler HTTP-targets a Cloud Run function
+const functions = require('@google-cloud/functions-framework');
+
+functions.http('dailyReport', async (req, res) => {
+  // Triggered by Cloud Scheduler cron: "0 9 * * *" (09:00 daily)
+  await runDailyReport();
+  res.status(204).send();
+});
+
+// ✅ AFTER — Azure Functions v4 Timer trigger
+// NOTE: NCRONTAB adds a leading seconds field. "0 9 * * *" → "0 0 9 * * *"
+const { app } = require('@azure/functions');
+
+app.timer('dailyReport', {
+  schedule: '0 0 9 * * *',
+  handler: async (timer, context) => {
+    await runDailyReport();
+  }
+});
+```
+
 ## HTTP Trigger
 
 ```javascript

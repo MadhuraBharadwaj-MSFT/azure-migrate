@@ -2,9 +2,23 @@
 
 Generate a migration assessment report before any code changes.
 
+## Source Platform Branch
+
+Before filling in any tables below, identify the source platform and load the matching set of inserts. Section **headings** below are mandatory; section **table contents** are sourced from the inserts file that matches the source platform.
+
+| Source Platform | Inserts File | Detection Hints |
+|-----------------|-------------|-----------------|
+| AWS Lambda | (this file — default) | `template.yaml` (SAM), `serverless.yml`, `lambda_handler` / `exports.handler`, `requirements.txt` with `boto3`, AWS CLI usage |
+| GCP Cloud Run functions (Cloud Functions 2nd gen) | [cloudrun-functions-assessment-inserts.md](cloudrun-functions-assessment-inserts.md) | `@google-cloud/functions-framework` in `package.json`, `functions.http()` / `functions.cloudEvent()` calls, `gcloud functions deploy --gen2` in CI scripts, Cloud Build YAML |
+| GCP Cloud Functions 1st gen | [cloudrun-functions-assessment-inserts.md](cloudrun-functions-assessment-inserts.md) (same file — 1st-gen variants noted inline) | `exports.<name> = (data, context) =>` background signatures, no `--gen2` flag, `functions-framework` not always present |
+
+> When source is GCP, **replace** the AWS-flavored Sections 1, 2, 3, 4, 5, 6, 8, 9, 10, 11 with the corresponding tables from the inserts file. Sections 7 (Architecture Diagrams), 12 (Recommendations), and 13 (Next Steps) remain structurally the same — adjust labels accordingly (e.g., "Current State (GCP)" instead of "Current State (AWS)").
+
 ## Prerequisites
 
-- Workspace contains AWS Lambda functions, SAM templates, or CloudFormation templates
+- Workspace contains source artifacts:
+  - **AWS Lambda**: function code, SAM templates, or CloudFormation templates
+  - **GCP Cloud Run functions**: Functions Framework code (`index.js` / `main.py`), `package.json` / `requirements.txt`, optional `service.yaml` or `cloudbuild.yaml`
 - Prompt user to upload relevant files if not present
 
 ## Assessment Steps

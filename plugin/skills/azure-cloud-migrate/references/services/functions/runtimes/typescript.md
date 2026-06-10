@@ -6,6 +6,47 @@
 
 TypeScript uses the same `app.*()` registration as JavaScript. See [javascript.md](javascript.md) for all trigger/binding patterns. Below are TypeScript-specific type signatures.
 
+## Cloud Run Functions Migration Rules
+
+> Full scenario guidance → [cloudrun-functions-to-functions.md](../cloudrun-functions-to-functions.md). Canonical side-by-side code examples → [javascript.md — Cloud Run Functions Migration Rules](javascript.md#cloud-run-functions-migration-rules) (the runtime is identical; only the type imports change).
+
+TypeScript-specific notes when migrating Functions Framework code:
+
+- **Drop the `@google-cloud/functions-framework` types** in `tsconfig` / `package.json`:
+  - Remove `import { HttpFunction, CloudEventFunction, Request, Response } from '@google-cloud/functions-framework';`
+  - Remove `import { CloudEvent } from 'cloudevents';`
+- **Import Azure Functions types** instead: `import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';`
+- **Map handler types**:
+
+  | Functions Framework type | Azure Functions equivalent |
+  |--------------------------|---------------------------|
+  | `HttpFunction` (= `(req: Request, res: Response) => void \| Promise<void>`) | `(request: HttpRequest, context: InvocationContext) => Promise<HttpResponseInit>` |
+  | `CloudEventFunction<T>` (= `(cloudEvent: CloudEvent<T>) => void \| Promise<void>`) | Trigger-specific: e.g., `(message: T, context: InvocationContext) => Promise<void>` for Service Bus; `(blob: Buffer, context: InvocationContext) => Promise<void>` for Blob |
+- **Drop `cloudevents` package** entirely once handlers are converted
+
+### TypeScript HTTP Handler Skeleton
+
+```typescript
+// ❌ BEFORE — Cloud Run functions (TypeScript)
+import { http, Request, Response } from '@google-cloud/functions-framework';
+
+http('helloHttp', (req: Request, res: Response) => {
+  res.status(200).send(`Hello ${req.query.name ?? 'World'}`);
+});
+
+// ✅ AFTER — Azure Functions v4 (TypeScript)
+import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
+
+app.http('helloHttp', {
+  methods: ['GET', 'POST'],
+  authLevel: 'anonymous',
+  handler: async (request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> => {
+    const name = request.query.get('name') ?? 'World';
+    return { status: 200, body: `Hello ${name}` };
+  }
+});
+```
+
 ## HTTP Trigger
 
 ```typescript

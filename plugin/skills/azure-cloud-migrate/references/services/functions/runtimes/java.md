@@ -1,5 +1,84 @@
 # Java — Azure Functions Triggers & Bindings
 
+## Cloud Run Functions Migration Rules
+
+> Full scenario guidance → [cloudrun-functions-to-functions.md](../cloudrun-functions-to-functions.md)
+
+Java-specific Cloud Run functions rules:
+- **Drop `com.google.cloud.functions:functions-framework-api`** dependency from `pom.xml`
+- **Replace `HttpFunction` / `CloudEventsFunction` / `BackgroundFunction` interfaces** with Azure Functions Java method annotations (`@HttpTrigger`, `@ServiceBusQueueTrigger`, `@BlobTrigger`, `@TimerTrigger`)
+- **HTTP signature change**:
+  - GCP: `void service(HttpRequest req, HttpResponse res) throws Exception` (writes via `res.getWriter()`)
+  - Azure: `HttpResponseMessage run(@HttpTrigger HttpRequestMessage<Optional<String>> req, ExecutionContext context)` (returns response)
+- **CloudEvent unwrap**:
+  - GCP: `void accept(CloudEvent event) throws Exception` (`event.getData().toBytes()` requires JSON parsing for Pub/Sub `MessagePublishedData`)
+  - Azure: trigger receives the unwrapped payload directly (`@ServiceBusQueueTrigger String message`, `@BlobTrigger byte[] content`)
+- **Drop Buildpacks `pom.xml` profile** (the `function-maven-plugin` invocation) — replace with `azure-functions-maven-plugin`
+
+### Canonical Side-by-Side — HTTP Function
+
+```java
+// ❌ BEFORE — Cloud Run functions (Java)
+import com.google.cloud.functions.HttpFunction;
+import com.google.cloud.functions.HttpRequest;
+import com.google.cloud.functions.HttpResponse;
+
+public class HelloHttp implements HttpFunction {
+  @Override
+  public void service(HttpRequest req, HttpResponse res) throws Exception {
+    String name = req.getFirstQueryParameter("name").orElse("World");
+    res.getWriter().write("Hello, " + name + "!");
+  }
+}
+
+// ✅ AFTER — Azure Functions (Java)
+import com.microsoft.azure.functions.*;
+import com.microsoft.azure.functions.annotation.*;
+
+public class HelloHttp {
+  @FunctionName("helloHttp")
+  public HttpResponseMessage run(
+      @HttpTrigger(name = "req",
+                   methods = {HttpMethod.GET, HttpMethod.POST},
+                   authLevel = AuthorizationLevel.ANONYMOUS) HttpRequestMessage<Optional<String>> req,
+      final ExecutionContext context) {
+    String name = req.getQueryParameters().getOrDefault("name", "World");
+    return req.createResponseBuilder(HttpStatus.OK).body("Hello, " + name + "!").build();
+  }
+}
+```
+
+### Canonical Side-by-Side — Pub/Sub CloudEvent → Service Bus Queue
+
+```java
+// ❌ BEFORE — Cloud Run functions consuming Pub/Sub
+import com.google.cloud.functions.CloudEventsFunction;
+import io.cloudevents.CloudEvent;
+
+public class HandleMessage implements CloudEventsFunction {
+  @Override
+  public void accept(CloudEvent event) throws Exception {
+    // event.getData() is a MessagePublishedData JSON; data is base64 inside
+    byte[] body = event.getData().toBytes();   // requires JSON parse + base64 decode
+    // ...business logic...
+  }
+}
+
+// ✅ AFTER — Azure Functions Service Bus queue trigger
+public class HandleMessage {
+  @FunctionName("handleMessage")
+  public void run(
+      @ServiceBusQueueTrigger(name = "msg",
+                              queueName = "messages",
+                              connection = "ServiceBusConnection") String message,
+      final ExecutionContext context) {
+    // message is the already-decoded payload
+    context.getLogger().info("Got message: " + message);
+  }
+}
+```
+
+
 > **Model**: Java annotation-based model. Uses `@FunctionName` and trigger/binding annotations.
 > Import: `com.microsoft.azure.functions.*` and `com.microsoft.azure.functions.annotation.*`
 

@@ -1,6 +1,6 @@
 ---
 name: azure-cloud-migrate
-description: "Assess and migrate cross-cloud workloads to Azure with reports and code conversion. Supports Lambda→Functions, Beanstalk/Heroku/App Engine→App Service, Fargate/Kubernetes/Cloud Run/Spring Boot→Container Apps. WHEN: migrate Lambda to Functions, AWS to Azure, migrate Beanstalk, migrate Heroku, migrate App Engine, Cloud Run migration, Fargate to ACA, ECS/Kubernetes/GKE/EKS to Container Apps, Spring Boot to Container Apps, cross-cloud migration."
+description: "Assess and migrate cross-cloud workloads to Azure with reports and code conversion. Supports Lambda→Functions, Cloud Run functions (Cloud Functions 2nd gen)→Functions, Beanstalk/Heroku/App Engine→App Service, Fargate/Kubernetes/Cloud Run/Spring Boot→Container Apps. WHEN: migrate Lambda to Functions, migrate Cloud Run functions to Azure Functions, migrate GCP Cloud Functions to Azure Functions, AWS to Azure, GCP to Azure, migrate Beanstalk, migrate Heroku, migrate App Engine, Cloud Run migration, Fargate to ACA, ECS/Kubernetes/GKE/EKS to Container Apps, Spring Boot to Container Apps, Functions Framework to Azure Functions, cross-cloud migration."
 license: MIT
 metadata:
   author: Microsoft
@@ -27,6 +27,8 @@ metadata:
 | Source | Target | Reference |
 |--------|--------|-----------|
 | AWS Lambda | Azure Functions | [lambda-to-functions.md](references/services/functions/lambda-to-functions.md) ([assessment](references/services/functions/assessment.md), [code-migration](references/services/functions/code-migration.md)) |
+| GCP Cloud Run functions (Cloud Functions 2nd gen) | Azure Functions | [cloudrun-functions-to-functions.md](references/services/functions/cloudrun-functions-to-functions.md) ([assessment](references/services/functions/assessment.md), [GCP inserts](references/services/functions/cloudrun-functions-assessment-inserts.md), [code-migration](references/services/functions/code-migration.md)) |
+| GCP Cloud Functions 1st gen | Azure Functions | [cloudrun-functions-to-functions.md § 1st-gen delta](references/services/functions/cloudrun-functions-to-functions.md#1st-gen-cloud-functions-signature-delta) |
 | AWS Elastic Beanstalk | Azure App Service | [beanstalk-to-app-service.md](references/services/app-service/beanstalk-to-app-service.md) |
 | Heroku | Azure App Service | [heroku-to-app-service.md](references/services/app-service/heroku-to-app-service.md) |
 | Google App Engine | Azure App Service | [app-engine-to-app-service.md](references/services/app-service/app-engine-to-app-service.md) |
@@ -34,6 +36,8 @@ metadata:
 | Kubernetes (GKE/EKS/Self-hosted) | Azure Container Apps | [k8s-to-container-apps.md](references/services/container-apps/k8s-to-container-apps.md) |
 | GCP Cloud Run | Azure Container Apps | [cloudrun-to-container-apps.md](references/services/container-apps/cloudrun-to-container-apps.md) |
 | Spring Boot (Azure Spring Apps/VMs) | Azure Container Apps | [spring-apps-to-aca.md](references/services/container-apps/spring-apps-to-aca.md) |
+
+> **Cloud Run *services* (full HTTP servers / containers)** are usually a better fit for **Azure Container Apps** rather than Azure Functions. Use the Cloud Run *functions* row above only when the workload is function-shaped (single-purpose handler, event-driven, or thin HTTP API). For multi-route web frameworks, gRPC, websockets, or long-running processes, recommend Container Apps via the `GCP Cloud Run` row.
 
 > No matching scenario? Use `mcp_azure_mcp_documentation` and `mcp_azure_mcp_get_azure_bestpractices` tools.
 

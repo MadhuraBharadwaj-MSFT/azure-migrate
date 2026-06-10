@@ -10,6 +10,64 @@
 
 Python-specific: all functions use the v2 decorator model shown throughout this file. No additional migration rules beyond global.
 
+## Cloud Run Functions Migration Rules
+
+> Full scenario guidance → [cloudrun-functions-to-functions.md](../cloudrun-functions-to-functions.md)
+
+Python-specific Cloud Run functions rules:
+- **Drop `functions-framework`** from `requirements.txt` and the `functions-framework --target=...` start command
+- **Replace `@functions_framework.http` and `@functions_framework.cloud_event`** decorators with the Azure v2 `@app.route`, `@app.service_bus_queue_trigger`, `@app.blob_trigger`, etc.
+- **CloudEvent unwrap**: `cloud_event.data` is gone — Azure triggers receive the unwrapped payload directly (e.g., `azure.functions.ServiceBusMessage`, `bytes` for blobs)
+- **Pub/Sub base64 decode**: GCP `base64.b64decode(cloud_event.data['message']['data'])` → drop, the Service Bus binding delivers decoded body via `msg.get_body()`
+- **Drop `GOOGLE_APPLICATION_CREDENTIALS`** and replace `google.oauth2.service_account.Credentials.from_service_account_file(...)` with `DefaultAzureCredential(managed_identity_client_id=os.environ['AZURE_CLIENT_ID'])`
+
+### Canonical Side-by-Side — HTTP Function
+
+```python
+# ❌ BEFORE — Cloud Run functions
+import functions_framework
+
+@functions_framework.http
+def hello_http(request):
+    name = request.args.get('name', 'World')
+    return f'Hello, {name}!'
+
+# ✅ AFTER — Azure Functions v2 (Python)
+import azure.functions as func
+
+app = func.FunctionApp()
+
+@app.route(route="hello", methods=["GET", "POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def hello_http(req: func.HttpRequest) -> func.HttpResponse:
+    name = req.params.get('name', 'World')
+    return func.HttpResponse(f'Hello, {name}!')
+```
+
+### Canonical Side-by-Side — Pub/Sub CloudEvent → Service Bus Queue
+
+```python
+# ❌ BEFORE — Cloud Run functions consuming Pub/Sub
+import base64, json, functions_framework
+
+@functions_framework.cloud_event
+def handle_message(cloud_event):
+    payload = json.loads(base64.b64decode(cloud_event.data['message']['data']))
+    attrs = cloud_event.data['message'].get('attributes', {})
+    print(f"Got message {cloud_event.data['message']['messageId']}: {payload}")
+
+# ✅ AFTER — Azure Functions v2 Service Bus queue trigger
+import azure.functions as func, json, logging
+
+app = func.FunctionApp()
+
+@app.service_bus_queue_trigger(arg_name="msg", queue_name="messages",
+                               connection="ServiceBusConnection")
+def handle_message(msg: func.ServiceBusMessage):
+    payload = json.loads(msg.get_body().decode())
+    attrs = msg.application_properties or {}
+    logging.info(f"Got message {msg.message_id}: {payload}")
+```
+
 ## HTTP Trigger
 
 ```python

@@ -123,7 +123,25 @@ Load the appropriate runtime reference for the target language:
 
 ## Scenario-Specific Guidance
 
-See [lambda-to-functions.md](lambda-to-functions.md) for detailed trigger mapping, code patterns, and examples.
+See the scenario reference matching the source platform:
+
+| Source Platform | Scenario Reference |
+|-----------------|-------------------|
+| AWS Lambda | [lambda-to-functions.md](lambda-to-functions.md) |
+| GCP Cloud Run functions / Cloud Functions | [cloudrun-functions-to-functions.md](cloudrun-functions-to-functions.md) |
+
+## Cloud Run Functions–Specific Code Migration Rules
+
+When migrating from Cloud Run functions / Cloud Functions, apply these rules in addition to the generic rules above:
+
+- **Drop the Functions Framework dependency**: remove `@google-cloud/functions-framework` (Node), `functions-framework` (Python), `com.google.cloud.functions:functions-framework-api` (Java), `Google.Cloud.Functions.Hosting` (.NET) from `package.json` / `requirements.txt` / `pom.xml` / `.csproj`
+- **Remove handler registration calls**: delete `functions.http('<name>', ...)`, `functions.cloudEvent('<name>', ...)`, `@HttpFunction`/`@CloudEventFunction` annotations — replace with `app.http()` / `app.serviceBusQueue()` / etc.
+- **Remove the HTTP server bootstrap**: no `app.listen(PORT)`, no `if __name__ == '__main__': functions_framework.start()`, no `mvn function:run`. Azure Functions host owns the listener.
+- **Drop the Dockerfile** unless using an Azure Functions [custom handler](https://learn.microsoft.com/azure/azure-functions/functions-custom-handlers). Flex Consumption builds remotely from source (Oryx)
+- **Drop Buildpacks artifacts**: `.gcloudignore` → `.funcignore`, `Procfile` → none (host.json controls behavior), `cloudbuild.yaml` → `.github/workflows/*.yml`
+- **Drop `GOOGLE_APPLICATION_CREDENTIALS`** and any SA JSON key files. Replace with `DefaultAzureCredential({ managedIdentityClientId: process.env.AZURE_CLIENT_ID })` — see [global-rules.md](global-rules.md#identity-first-authentication-zero-api-keys)
+- **Unwrap CloudEvent payloads at the trigger boundary**: Azure Functions triggers receive the *already-unwrapped* payload (e.g., the blob, the message body). Strip code that unpacks `event.data`, base64-decodes `message.data`, or inspects the CloudEvents envelope (`type`, `source`, `subject`)
+- **Drop the `PORT` env var listener**: GCP Buildpacks default to `PORT=8080`. Azure Functions does not use it
 
 ## Handoff to azure-prepare
 
